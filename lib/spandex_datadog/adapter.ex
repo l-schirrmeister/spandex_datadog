@@ -56,7 +56,7 @@ defmodule SpandexDatadog.Adapter do
       }}
     end
 
-    @spec extract_context(Plug.Conn.t() | %{} | [], [binary()]) :: {:ok, SpanContext.t()} | {:error, :no_distributed_trace}
+    @spec extract_span_context(Plug.Conn.t() | %{} | [], [binary()]) :: {:ok, SpanContext.t()} | {:error, :no_distributed_trace}
     def extract_span_context(conn_or_headers, propagation_style_extract) do
       propagation_style_extract
       |> Enum.find_value(fn extractor ->
