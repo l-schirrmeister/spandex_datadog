@@ -180,6 +180,9 @@ defmodule SpandexDatadog.Test.AdapterTest do
                {"x-datadog-trace-id", "123"},
                {"x-datadog-parent-id", "456"},
                {"x-datadog-sampling-priority", "10"},
+               {"x-b3-traceid", "7B"},
+               {"x-b3-spanid", "1C8"},
+               {"x-b3-sampled", "10"},
                {"header1", "value1"},
                {"header2", "value2"}
              ]
@@ -195,6 +198,9 @@ defmodule SpandexDatadog.Test.AdapterTest do
                "x-datadog-trace-id" => "123",
                "x-datadog-parent-id" => "456",
                "x-datadog-sampling-priority" => "10",
+               "x-b3-traceid" => "7B",
+               "x-b3-spanid" => "1C8",
+               "x-b3-sampled" => "10",
                "header1" => "value1",
                "header2" => "value2"
              }

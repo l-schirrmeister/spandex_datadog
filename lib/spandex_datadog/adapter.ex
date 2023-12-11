@@ -39,6 +39,7 @@ defmodule SpandexDatadog.Adapter do
     def parse_value(value, base \\ 10)
     def parse_value(value, base) when is_binary(value) do
       case Integer.parse(value, base) do
+        {int, _} when is_integer(int) and int > @max_id -> nil
         {int, _} -> int
         _ -> nil
       end
@@ -78,6 +79,14 @@ defmodule SpandexDatadog.Adapter do
         @extract_resources[injector].tracing_headers(span_context)
       end)
     end
+
+    def to_hexadecimal_string(trace_id) do
+      Integer.to_string(trace_id, 16)
+    end
+
+    def parse_hexadecimal(value) do
+      parse_value(value, 16)
+    end
   end
 
   defmodule SpandexDatadog.B3.Extractor do
@@ -90,11 +99,11 @@ defmodule SpandexDatadog.Adapter do
     def extract_span_context(conn_or_headers) do
       trace_id = conn_or_headers
         |> extract(@trace_id_key)
-        |> parse_value(16)
+        |> parse_hexadecimal()
 
       parent_id = conn_or_headers
         |> extract(@parent_id_key)
-        |> parse_value(16)
+        |> parse_hexadecimal()
 
       priority = conn_or_headers
         |> extract(@priority_key)
@@ -105,8 +114,8 @@ defmodule SpandexDatadog.Adapter do
 
     def tracing_headers(%SpanContext{trace_id: trace_id, parent_id: parent_id, priority: priority}) do
       [
-        {@trace_id_key, Integer.to_string(trace_id, 16)},
-        {@parent_id_key, Integer.to_string(parent_id, 16)},
+        {@trace_id_key, to_hexadecimal_string(trace_id)},
+        {@parent_id_key, to_hexadecimal_string(parent_id)},
         {@priority_key, to_string(priority)}
       ]
     end
@@ -167,8 +176,8 @@ defmodule SpandexDatadog.Adapter do
     defp split_header_and_parse(nil), do: {nil, nil, nil}
     defp split_header_and_parse(value) do
       case String.split(value, "-") do
-        [trace_id, parent_id, priority] -> {parse_value(trace_id, 16), parse_value(parent_id, 16), parse_value(priority)}
-        [trace_id, parent_id] -> {parse_value(trace_id, 16), parse_value(parent_id, 16), nil}
+        [trace_id, parent_id, priority] -> {parse_hexadecimal(trace_id), parse_hexadecimal(parent_id), parse_value(priority)}
+        [trace_id, parent_id] -> {parse_hexadecimal(trace_id), parse_hexadecimal(parent_id), nil}
         _ -> {nil, nil, nil}
       end
     end
@@ -197,8 +206,6 @@ defmodule SpandexDatadog.Adapter do
           {:ok, SpanContext.t()}
           | {:error, :no_distributed_trace}
   def distributed_context(%Plug.Conn{} = conn, _opts) do
-    Logger.info("distributed_context _opts: #{inspect(_opts)}")
-
     conn
     |> SpandexDatadog.Extractor.extract_span_context(@propagation_style_extract)
   end
@@ -209,7 +216,7 @@ defmodule SpandexDatadog.Adapter do
           | {:error, :no_distributed_trace}
   def distributed_context(headers, _opts) do
     headers
-    |> SpandexDatadog.Extractor.extract_span_context(headers, @propagation_style_extract)
+    |> SpandexDatadog.Extractor.extract_span_context(@propagation_style_extract)
   end
 
   @doc """
@@ -223,6 +230,8 @@ defmodule SpandexDatadog.Adapter do
     |> Kernel.++(headers)
   end
 
+  @impl Spandex.Adapter
+  @spec inject_context(%{}, SpanContext.t(), Tracer.opts()) :: %{}
   def inject_context(headers, %SpanContext{} = span_context, _opts) when is_map(headers) do
     span_context
     |> SpandexDatadog.Extractor.tracing_headers(@propagation_style_inject)
