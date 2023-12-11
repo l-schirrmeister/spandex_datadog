@@ -27,14 +27,20 @@ defmodule SpandexDatadog.ApiServer do
       :batch_size,
       :sync_threshold,
       :agent_pid,
-      :container_id
+      :container_id,
+      :trap_exits?
     ]
   end
 
   # Same as HTTPoison.headers
   @type headers :: [{atom, binary}] | [{binary, binary}] | %{binary => binary} | any
 
-  @headers [{"Content-Type", "application/msgpack"}]
+  @headers [
+    {"Content-Type", "application/msgpack"},
+    {"Datadog-Meta-Lang", "elixir"},
+    {"Datadog-Meta-Lang-Version", System.version()},
+    {"Datadog-Meta-Tracer-Version", Application.spec(:spandex_datadog)[:vsn]}
+  ]
 
   @default_opts [
     host: "localhost",
@@ -43,6 +49,8 @@ defmodule SpandexDatadog.ApiServer do
     verbose?: false,
     batch_size: 10,
     sync_threshold: 20,
+    trap_exits?: false,
+    name: __MODULE__,
     api_adapter: SpandexDatadog.ApiServer
   ]
 
@@ -57,17 +65,23 @@ defmodule SpandexDatadog.ApiServer do
   * `:verbose?` - Only to be used for debugging: All finished traces will be logged. Defaults to `false`
   * `:batch_size` - The number of traces that should be sent in a single batch. Defaults to `10`.
   * `:sync_threshold` - The maximum number of processes that may be sending traces at any one time. This adds backpressure. Defaults to `20`.
+  * `:name` - The name the GenServer should have. Currently only used for testing. Defaults to `SpandexDatadog.ApiServer`
+  * `:trap_exits?` - Whether or not to trap exits and attempt to flush traces on shutdown, defaults to `false`. Useful if you do frequent deploys and you don't want to lose traces each deploy.
   """
   @spec start_link(opts :: Keyword.t()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     opts = Keyword.merge(@default_opts, opts)
 
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
 
   @doc false
   @spec init(opts :: Keyword.t()) :: {:ok, State.t()}
   def init(opts) do
+    if opts[:trap_exits?] do
+      Process.flag(:trap_exit, true)
+    end
+
     {:ok, agent_pid} = Agent.start_link(fn -> 0 end)
 
     state = %State{
@@ -107,7 +121,8 @@ defmodule SpandexDatadog.ApiServer do
   def send_trace(%Trace{} = trace, opts \\ []) do
     :telemetry.span([:spandex_datadog, :send_trace], %{trace: trace}, fn ->
       timeout = Keyword.get(opts, :timeout, 30_000)
-      result = GenServer.call(__MODULE__, {:send_trace, trace}, timeout)
+      genserver_name = Keyword.get(opts, :name, __MODULE__)
+      result = GenServer.call(genserver_name, {:send_trace, trace}, timeout)
       {result, %{trace: trace}}
     end)
   end
@@ -118,7 +133,8 @@ defmodule SpandexDatadog.ApiServer do
   def send_spans(spans, opts \\ []) when is_list(spans) do
     timeout = Keyword.get(opts, :timeout, 30_000)
     trace = %Trace{spans: spans}
-    GenServer.call(__MODULE__, {:send_trace, trace}, timeout)
+    genserver_name = Keyword.get(opts, :name, __MODULE__)
+    GenServer.call(genserver_name, {:send_trace, trace}, timeout)
   end
 
   @doc false
@@ -131,7 +147,30 @@ defmodule SpandexDatadog.ApiServer do
     {:reply, :ok, state}
   end
 
+  @doc false
+  def handle_info({:EXIT, _pid, reason}, state) do
+    terminate(reason, state)
+    {:noreply, %State{state | waiting_traces: []}}
+  end
+
+  @doc false
+  def terminate(_reason, state) do
+    # set batch_size to 0 to force any remaining traces to be flushed
+    # set asynchronous_send? to false to send the last traces synchronously
+    state
+    |> Map.put(:batch_size, 0)
+    |> Map.put(:asynchronous_send?, false)
+    |> maybe_flush_traces()
+
+    :ok
+  end
+
   @spec send_and_log([Trace.t()], State.t()) :: :ok
+  def send_and_log(traces, _state) when length(traces) < 1 do
+    # no-op if there's no traces to send
+    :ok
+  end
+
   def send_and_log(traces, %{container_id: container_id, verbose?: verbose?} = state) do
     headers = @headers ++ [{"X-Datadog-Trace-Count", length(traces)}]
     headers = headers ++ List.wrap(if container_id, do: {"Datadog-Container-ID", container_id})
@@ -246,7 +285,8 @@ defmodule SpandexDatadog.ApiServer do
   @spec meta(Span.t()) :: map
   defp meta(span) do
     %{}
-    |> add_datadog_meta(span)
+    |> add_env_data(span)
+    |> add_version_data(span)
     |> add_error_data(span)
     |> add_http_data(span)
     |> add_sql_data(span)
@@ -255,11 +295,18 @@ defmodule SpandexDatadog.ApiServer do
     |> Enum.into(%{})
   end
 
-  @spec add_datadog_meta(map, Span.t()) :: map
-  defp add_datadog_meta(meta, %Span{env: nil}), do: meta
+  @spec add_env_data(map, Span.t()) :: map
+  defp add_env_data(meta, %Span{env: nil}), do: meta
 
-  defp add_datadog_meta(meta, %Span{env: env}) do
+  defp add_env_data(meta, %Span{env: env}) do
     Map.put(meta, :env, env)
+  end
+
+  @spec add_version_data(map, Span.t()) :: map
+  defp add_version_data(meta, %Span{service_version: nil}), do: meta
+
+  defp add_version_data(meta, %Span{service_version: version}) do
+    Map.put(meta, :version, version)
   end
 
   @spec add_error_data(map, Span.t()) :: map
@@ -390,6 +437,7 @@ defmodule SpandexDatadog.ApiServer do
 
   defp deep_remove_nils(term), do: term
 
+  defp term_to_string(term) when is_boolean(term), do: inspect(term)
   defp term_to_string(term) when is_binary(term), do: term
   defp term_to_string(term) when is_atom(term), do: term
   defp term_to_string(term), do: inspect(term)

@@ -46,11 +46,12 @@ defmodule SpandexDatadog.ApiServerTest do
         id: 4_743_028_846_331_200_906,
         start: 1_527_752_052_216_478_000,
         service: :foo,
+        service_version: "v1",
         env: "local",
         name: "foo",
         trace_id: trace_id,
         completion_time: 1_527_752_052_216_578_000,
-        tags: [foo: "123", bar: 321, buz: :blitz, baz: {1, 2}, zyx: [xyz: {1, 2}]]
+        tags: [is_foo: true, foo: "123", bar: 321, buz: :blitz, baz: {1, 2}, zyx: [xyz: {1, 2}]]
       )
 
     {:ok, span_2} =
@@ -110,9 +111,9 @@ defmodule SpandexDatadog.ApiServerTest do
         nil
       )
 
-      ApiServer.start_link(http: TestOkApiServer)
+      assert {:ok, _pid} = ApiServer.start_link(http: TestOkApiServer, name: __MODULE__)
 
-      ApiServer.send_trace(trace)
+      ApiServer.send_trace(trace, name: __MODULE__)
 
       {start_measurements, start_metadata} = Process.get([:spandex_datadog, :send_trace, :start])
       assert start_measurements[:system_time]
@@ -175,6 +176,8 @@ defmodule SpandexDatadog.ApiServerTest do
             "buz" => "blitz",
             "env" => "local",
             "foo" => "123",
+            "is_foo" => "true",
+            "version" => "v1",
             "zyx" => "[xyz: {1, 2}]"
           },
           "metrics" => %{
@@ -230,6 +233,9 @@ defmodule SpandexDatadog.ApiServerTest do
 
       headers = [
         {"Content-Type", "application/msgpack"},
+        {"Datadog-Meta-Lang", "elixir"},
+        {"Datadog-Meta-Lang-Version", System.version()},
+        {"Datadog-Meta-Tracer-Version", nil},
         {"X-Datadog-Trace-Count", 1}
       ]
 
@@ -265,6 +271,8 @@ defmodule SpandexDatadog.ApiServerTest do
             "buz" => "blitz",
             "env" => "local",
             "foo" => "123",
+            "is_foo" => "true",
+            "version" => "v1",
             "zyx" => "[xyz: {1, 2}]"
           },
           "metrics" => %{

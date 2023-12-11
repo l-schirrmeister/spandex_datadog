@@ -2,7 +2,7 @@ defmodule SpandexDatadog.MixProject do
   use Mix.Project
 
   @source_url "https://github.com/spandex-project/spandex_datadog"
-  @version "1.2.0"
+  @version "1.4.0"
 
   def project do
     [
@@ -52,11 +52,12 @@ defmodule SpandexDatadog.MixProject do
   defp deps do
     [
       {:msgpax, "~> 2.2.1 or ~> 2.3"},
-      {:spandex, "~> 3.0"},
+      {:spandex, "~> 3.2"},
       {:telemetry, "~> 0.4.2 or ~> 1.0"},
       # Dev- and test-only deps
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
-      {:httpoison, "~> 0.13 or ~> 1.0", only: :test}
+      {:httpoison, "~> 0.13 or ~> 1.0 or ~> 2.0", only: :test},
+      {:mox, "~> 1.0", only: :test}
     ]
   end
 end
