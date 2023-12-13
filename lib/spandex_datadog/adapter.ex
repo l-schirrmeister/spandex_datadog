@@ -23,6 +23,7 @@ defmodule SpandexDatadog.Adapter do
       "B3 single header" => SpandexDatadog.B3Single.Extractor,
       "Datadog" => SpandexDatadog.Datadog.Extractor,
     }
+    @max_id 9_223_372_036_854_775_807
 
     @spec extract(Plug.Conn.t(), binary) :: binary() | nil
     def extract(conn = %Plug.Conn{}, key) do
