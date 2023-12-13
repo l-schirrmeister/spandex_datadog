@@ -103,6 +103,36 @@ defmodule SpandexDatadog.Test.AdapterTest do
       assert span_context.priority == 0
     end
 
+    test "returns a SpanContext struct with 64-bit b3 traceid header" do
+      conn =
+        :get
+        |> Plug.Test.conn("/")
+        |> Plug.Conn.put_req_header("x-b3-traceid", "ee3bd1e23d7a9375")
+        |> Plug.Conn.put_req_header("x-b3-spanid", "a5198417606544a8")
+        |> Plug.Conn.put_req_header("x-b3-sampled", "1")
+
+      assert {:ok, %SpanContext{} = span_context} = Adapter.distributed_context(conn, [])
+      assert span_context.trace_id == 17166545174277034869
+      assert span_context.parent_id == 11896685126612239528
+      assert span_context.priority == 1
+    end
+
+    test "returns a SpanContext struct with a 128-bit b3 traceid header" do
+      conn =
+        :get
+        |> Plug.Test.conn("/")
+        |> Plug.Conn.put_req_header("x-b3-traceid", "cbd4989f512a93bdee3bd1e23d7a9375")
+        |> Plug.Conn.put_req_header("x-b3-spanid", "a5198417606544a8")
+        |> Plug.Conn.put_req_header("x-b3-sampled", "1")
+
+      assert {:ok, %SpanContext{} = span_context} = Adapter.distributed_context(conn, [])
+      assert span_context.trace_id == 17166545174277034869
+      assert span_context.parent_id == 11896685126612239528
+      assert span_context.priority == 1
+    end
+
+
+
     test "returns a SpanContext struct with the parsed single b3 header" do
       conn =
         :get

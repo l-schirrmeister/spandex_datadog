@@ -12,7 +12,7 @@ defmodule SpandexDatadog.Adapter do
     Tracer
   }
 
-  @max_id 9_223_372_036_854_775_807
+  @max_id 18_446_744_073_709_551_615
 
   @propagation_style_extract ["Datadog", "B3", "B3 single header"]
   @propagation_style_inject ["Datadog", "B3"]
@@ -23,7 +23,7 @@ defmodule SpandexDatadog.Adapter do
       "B3 single header" => SpandexDatadog.B3Single.Extractor,
       "Datadog" => SpandexDatadog.Datadog.Extractor,
     }
-    @max_id 9_223_372_036_854_775_807
+    @max_id 18_446_744_073_709_551_615
 
     @spec extract(Plug.Conn.t(), binary) :: binary() | nil
     def extract(conn = %Plug.Conn{}, key) do
@@ -35,6 +35,16 @@ defmodule SpandexDatadog.Adapter do
     def extract(headers, key) when is_map(headers), do: Map.get(headers, key, nil)
     @spec extract([], binary) :: binary() | nil
     def extract(headers, key) when is_list(headers), do: Enum.find_value(headers, fn {k, v} -> if k == key, do: v end)
+
+    @spec ignore_upper_bits_for_128bit_trace_id(binary() | maybe_improper_list()) :: any()
+    def ignore_upper_bits_for_128bit_trace_id(nil), do: nil
+    def ignore_upper_bits_for_128bit_trace_id(id_string) when is_binary(id_string), do: id_string |> String.graphemes() |> ignore_upper_bits_for_128bit_trace_id()
+    def ignore_upper_bits_for_128bit_trace_id(id_number_list) when is_list(id_number_list) and length(id_number_list) == 32 do
+      id_number_list
+      |> Enum.slice(16,16)
+      |> Enum.join()
+    end
+    def ignore_upper_bits_for_128bit_trace_id(id_number_list) when is_list(id_number_list), do: id_number_list |> Enum.join()
 
     @spec parse_value(binary(), integer()) :: integer() | nil
     def parse_value(value, base \\ 10)
@@ -100,6 +110,7 @@ defmodule SpandexDatadog.Adapter do
     def extract_span_context(conn_or_headers) do
       trace_id = conn_or_headers
         |> extract(@trace_id_key)
+        |> ignore_upper_bits_for_128bit_trace_id()
         |> parse_hexadecimal()
 
       parent_id = conn_or_headers
